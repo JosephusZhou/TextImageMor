@@ -4,6 +4,14 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+def keyProperties = new Properties()
+def keyPropertiesFile = rootProject.file('key.properties')
+def hasReleaseSigning = keyPropertiesFile.exists()
+
+if (hasReleaseSigning) {
+    keyPropertiesFile.withInputStream { keyProperties.load(it) }
+}
+
 android {
     namespace 'com.example.textimagemor'
     compileSdk 36
@@ -16,10 +24,25 @@ android {
         versionName "1.0"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(keyProperties['storeFile'])
+                storePassword keyProperties['storePassword']
+                keyAlias keyProperties['keyAlias']
+                keyPassword keyProperties['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
         }
     }
 
