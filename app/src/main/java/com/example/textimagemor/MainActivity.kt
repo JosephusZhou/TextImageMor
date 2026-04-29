@@ -13,7 +13,6 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Shader
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -45,16 +44,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.core.graphics.createBitmap
 import androidx.core.view.WindowCompat
+import java.util.Random
 import kotlin.math.cos
 import kotlin.math.sin
 import android.text.TextPaint as AndroidTextPaint
-import java.util.Random
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,6 +87,7 @@ fun MainScreen() {
     val inputText = remember { mutableStateOf("") }
     val currentBitmap = remember { mutableStateOf<Bitmap?>(null) }
     val scrollState = rememberScrollState()
+    val saveFailedText = stringResource(R.string.save_failed)
 
     val requestPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -96,7 +97,7 @@ fun MainScreen() {
                 saveBitmapToGallery(context, bmp)
             }
         } else {
-            Toast.makeText(context, context.getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, saveFailedText, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -110,7 +111,7 @@ fun MainScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = context.getString(R.string.app_name),
+            text = stringResource(R.string.app_name),
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
@@ -118,7 +119,7 @@ fun MainScreen() {
         OutlinedTextField(
             value = inputText.value,
             onValueChange = { inputText.value = it },
-            label = { Text(context.getString(R.string.hint_input_text)) },
+            label = { Text(stringResource(R.string.hint_input_text)) },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(300.dp),
@@ -133,7 +134,7 @@ fun MainScreen() {
                 onClick = { inputText.value = "" },
                 modifier = Modifier.weight(1f)
             ) {
-                Text(context.getString(R.string.button_clear_content))
+                Text(stringResource(R.string.button_clear_content))
             }
 
             Button(
@@ -147,7 +148,7 @@ fun MainScreen() {
                 },
                 modifier = Modifier.weight(1f)
             ) {
-                Text(context.getString(R.string.button_generate))
+                Text(stringResource(R.string.button_generate))
             }
         }
 
@@ -170,7 +171,7 @@ fun MainScreen() {
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(context.getString(R.string.button_share))
+                    Text(stringResource(R.string.button_share))
                 }
 
                 Button(
@@ -182,12 +183,12 @@ fun MainScreen() {
                                 saveBitmapToGallery(context, bmp)
                             }
                         } ?: run {
-                            Toast.makeText(context, context.getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, saveFailedText, Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(context.getString(R.string.button_save))
+                    Text(stringResource(R.string.button_save))
                 }
             }
 
@@ -197,7 +198,7 @@ fun MainScreen() {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(context.getString(R.string.button_clear))
+                Text(stringResource(R.string.button_clear))
             }
         }
     }
