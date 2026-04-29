@@ -2,6 +2,7 @@ package com.example.textimagemor
 
 import android.Manifest
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
@@ -12,17 +13,12 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Shader
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.content.Intent
-import android.net.Uri
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.core.view.WindowCompat
-import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,7 +28,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -50,7 +48,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.core.graphics.createBitmap
+import androidx.core.view.WindowCompat
 import kotlin.math.cos
 import kotlin.math.sin
 import android.text.TextPaint as AndroidTextPaint
@@ -59,8 +59,8 @@ import java.util.Random
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 启用沉浸式状态栏，让内容延伸到系统栏后面
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        enableEdgeToEdge()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -68,6 +68,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun enableEdgeToEdge() {
+        window.navigationBarColor = Color.TRANSPARENT
+        window.statusBarColor = Color.TRANSPARENT
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.isAppearanceLightStatusBars = true
+        insetsController.isAppearanceLightNavigationBars = true
     }
 }
 
@@ -94,8 +103,8 @@ fun MainScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding() // 顶部避免状态栏遮挡
-            .navigationBarsPadding() // 底部避免导航栏遮挡
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .verticalScroll(scrollState)
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -166,29 +175,29 @@ fun MainScreen() {
 
                 Button(
                     onClick = {
-                        currentBitmap.value = null
+                        currentBitmap.value?.let { bmp ->
+                            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+                                requestPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            } else {
+                                saveBitmapToGallery(context, bmp)
+                            }
+                        } ?: run {
+                            Toast.makeText(context, context.getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
+                        }
                     },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(context.getString(R.string.button_clear))
+                    Text(context.getString(R.string.button_save))
                 }
             }
 
             Button(
                 onClick = {
-                    currentBitmap.value?.let { bmp ->
-                        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-                            requestPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        } else {
-                            saveBitmapToGallery(context, bmp)
-                        }
-                    } ?: run {
-                        Toast.makeText(context, context.getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
-                    }
+                    currentBitmap.value = null
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(context.getString(R.string.button_save))
+                Text(context.getString(R.string.button_clear))
             }
         }
     }
@@ -201,11 +210,45 @@ fun textToBitmap(text: String): Bitmap {
         isAntiAlias = true
     }
 
-    val lines = text.split("\n")
     val lineHeight = textPaint.fontMetricsInt.bottom - textPaint.fontMetricsInt.top
     val padding = 60
     val bitmapWidth = 1080
-    val bitmapHeight = padding * 2 + lineHeight * lines.size
+    val availableWidth = bitmapWidth - 2 * padding
+
+    val random = Random()
+
+    // 第一遍：计算实际需要的行数（支持自动换行）
+    var totalLines = 0
+    val lines = text.split("\n")
+    for (line in lines) {
+        var currentX = 0f
+        totalLines++ // 每行至少有一个换行
+        line.forEachIndexed { index, char ->
+            val charWidth = textPaint.measureText(char.toString())
+            // 模拟间距扰动
+            val spacingPerturbation = if (index > 0) random.nextInt(11) - 5 else 0
+            val charX = currentX + spacingPerturbation
+            // 模拟重叠因子
+            val nextChar = if (index < line.lastIndex) line[index + 1] else null
+            val overlapFactor = if (nextChar != null &&
+                ((char.isDigit() && nextChar.isDigit()) || (char.isLetter() && nextChar.isLetter()))) {
+                0f
+            } else {
+                random.nextFloat() * 0.3f
+            }
+            val nextX = charX + charWidth * (1 - overlapFactor)
+
+            if (nextX > availableWidth && currentX > 0) {
+                // 需要换行
+                totalLines++
+                currentX = 0f
+            } else {
+                currentX = nextX
+            }
+        }
+    }
+
+    val bitmapHeight = padding * 2 + lineHeight * totalLines
 
     val bitmap = createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
@@ -216,17 +259,26 @@ fun textToBitmap(text: String): Bitmap {
     val x = padding.toFloat()
     var y = (padding - textPaint.fontMetricsInt.top).toFloat()
 
-    val random = Random()
+    // 第二遍：实际绘制
+    val random2 = Random() // 使用新的随机种子，或者保存第一遍的状态
+    // 为了简单，这里重新计算（可能导致高度略有不同，但影响不大）
+    val random3 = Random()
 
-    // 然后在上面绘制字符（每个字符独立旋转5-10度，所以是倾斜的）
     for (line in lines) {
         var currentX = x
         line.forEachIndexed { index, char ->
-            val rotation = random.nextInt(6) + 5
-            val alpha = ((random.nextFloat() * 0.2f + 0.4f) * 255).toInt()
+            val rotation = random3.nextInt(6) + 5
+            val alpha = ((random3.nextFloat() * 0.2f + 0.4f) * 255).toInt()
             textPaint.alpha = alpha
 
-            val spacingPerturbation = if (index > 0) random.nextInt(11) - 5 else 0
+            val spacingPerturbation = if (index > 0) random3.nextInt(11) - 5 else 0
+
+            // 检查是否需要换行
+            val charWidth = textPaint.measureText(char.toString())
+            if (currentX > bitmapWidth - padding) {
+                y += lineHeight
+                currentX = x
+            }
 
             canvas.save()
             val charX = currentX + spacingPerturbation
@@ -242,8 +294,7 @@ fun textToBitmap(text: String): Bitmap {
             canvas.drawText(char.toString(), 0f, 0f, textPaint)
             canvas.restore()
 
-            val charWidth = textPaint.measureText(char.toString())
-            val overlapFactor = random.nextFloat() * 0.3f
+            val overlapFactor = random3.nextFloat() * 0.3f
             currentX = charX + charWidth * (1 - overlapFactor)
         }
         y += lineHeight
@@ -251,6 +302,7 @@ fun textToBitmap(text: String): Bitmap {
 
     return bitmap
 }
+
 fun addBackgroundTexture(canvas: Canvas, width: Int, height: Int) {
     val random = Random()
     canvas.drawColor(Color.argb(255, 245, 245, 240))
@@ -301,7 +353,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     val width = bitmap.width
     val height = bitmap.height
 
-    // 直接使用原始图片，不需要整体旋转（字符级旋转已在textToBitmap中实现）
+    // 直接使用原始图片，不需要整体旋转
     val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
     val canvas = Canvas(result)
     val newWidth = result.width
@@ -406,6 +458,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
         canvas.drawPath(path5, linePaint5)
     }
 
+    // 降低对比度
     val contrastMatrix = ColorMatrix().apply {
         setScale(0.9f, 0.9f, 0.9f, 1f)
     }
@@ -418,6 +471,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     val contrastCanvas = Canvas(contrastBitmap)
     contrastCanvas.drawBitmap(result, 0f, 0f, contrastPaint)
 
+    // 添加高斯噪声
     val noiseBitmap =
         contrastBitmap.copy(Bitmap.Config.ARGB_8888, true)
     val noiseCanvas = Canvas(noiseBitmap)
@@ -481,30 +535,26 @@ fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap) {
 
 fun shareBitmap(context: android.content.Context, bitmap: Bitmap) {
     try {
-        // 保存到缓存文件
         val cacheDir = context.externalCacheDir ?: context.cacheDir
         val imageFile = java.io.File(cacheDir, "share_image_${System.currentTimeMillis()}.jpg")
-        
+
         val outputStream = java.io.FileOutputStream(imageFile)
         bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
         outputStream.flush()
         outputStream.close()
-        
-        // 使用 FileProvider 获取 URI
+
         val uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.provider",
             imageFile
         )
-        
-        // 创建分享 Intent
+
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "image/jpeg"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        
-        // 显示分享选择器
+
         context.startActivity(Intent.createChooser(shareIntent, "分享图片"))
     } catch (e: Exception) {
         e.printStackTrace()
