@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
@@ -205,103 +204,146 @@ fun MainScreen() {
 }
 
 fun textToBitmap(text: String): Bitmap {
-    val textPaint = AndroidTextPaint().apply {
-        color = Color.BLACK
-        textSize = 50f
-        isAntiAlias = true
-    }
-
-    val lineHeight = textPaint.fontMetricsInt.bottom - textPaint.fontMetricsInt.top
+    val baseTextSize = 56f
     val padding = 60
     val bitmapWidth = 1080
-    val availableWidth = bitmapWidth - 2 * padding
+    val seed = System.currentTimeMillis()
+    val availableWidth = (bitmapWidth - 2 * padding).toFloat()
 
-    val random = Random()
+    val rawLines = text.split("\n").toMutableList()
+    if (rawLines.isEmpty()) rawLines.add("")
 
-    // 第一遍：计算实际需要的行数（支持自动换行）
-    var totalLines = 0
-    val lines = text.split("\n")
-    for (line in lines) {
-        var currentX = 0f
-        totalLines++ // 每行至少有一个换行
-        line.forEachIndexed { index, char ->
-            val charWidth = textPaint.measureText(char.toString())
-            // 模拟间距扰动
-            val spacingPerturbation = if (index > 0) random.nextInt(11) - 5 else 0
-            val charX = currentX + spacingPerturbation
-            // 模拟重叠因子
-            val nextChar = if (index < line.lastIndex) line[index + 1] else null
-            val overlapFactor = if (nextChar != null &&
-                ((char.isDigit() && nextChar.isDigit()) || (char.isLetter() && nextChar.isLetter()))) {
-                0f
+    val measurePaint = AndroidTextPaint().apply {
+        textSize = baseTextSize
+        isAntiAlias = true
+    }
+    val fontMetrics = measurePaint.fontMetricsInt
+    val lineHeight = (fontMetrics.bottom - fontMetrics.top) * 1.4f
+    val waveAmplitude = lineHeight * 0.7f
+
+    var totalVisualLines = 0
+    for (line in rawLines) {
+        var x = 0f
+        totalVisualLines++
+        for (char in line) {
+            val charWidth = measurePaint.measureText(char.toString())
+            if (x + charWidth > availableWidth && x > 0) {
+                totalVisualLines++
+                x = charWidth
             } else {
-                random.nextFloat() * 0.3f
-            }
-            val nextX = charX + charWidth * (1 - overlapFactor)
-
-            if (nextX > availableWidth && currentX > 0) {
-                // 需要换行
-                totalLines++
-                currentX = 0f
-            } else {
-                currentX = nextX
+                x += charWidth
             }
         }
     }
 
-    val bitmapHeight = padding * 2 + lineHeight * totalLines
+    val bitmapHeight = maxOf(
+        (padding * 2 + (lineHeight + waveAmplitude * 2 + 12) * totalVisualLines).toInt(),
+        200
+    )
 
     val bitmap = createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
 
-    // 先绘制背景纹理（直的）
     addBackgroundTexture(canvas, bitmapWidth, bitmapHeight)
 
-    val x = padding.toFloat()
-    var y = (padding - textPaint.fontMetricsInt.top).toFloat()
+    var baseY = padding + waveAmplitude + 16 - fontMetrics.top
+    for (lineIdx in rawLines.indices) {
+        val line = rawLines[lineIdx]
+        val lineRandom = Random(seed + lineIdx * 9973L)
 
-    // 第二遍：实际绘制
-    val random2 = Random() // 使用新的随机种子，或者保存第一遍的状态
-    // 为了简单，这里重新计算（可能导致高度略有不同，但影响不大）
-    val random3 = Random()
+        val frequency = 1.8f + lineRandom.nextFloat() * 2.0f
+        val phase = lineRandom.nextFloat() * Math.PI.toFloat() * 2f
+        val amplitude = waveAmplitude * (0.7f + lineRandom.nextFloat() * 0.6f)
 
-    for (line in lines) {
-        var currentX = x
-        line.forEachIndexed { index, char ->
-            val rotation = random3.nextInt(6) + 5
-            val alpha = ((random3.nextFloat() * 0.2f + 0.4f) * 255).toInt()
-            textPaint.alpha = alpha
+        var currentX = padding.toFloat()
+        var prevWasSameType = false
+        var sameTypeGroupY = 0f
 
-            val spacingPerturbation = if (index > 0) random3.nextInt(11) - 5 else 0
+        for (charIdx in line.indices) {
+            val ch = line[charIdx]
+            val charText = ch.toString()
+            val charRandom = Random(seed + lineIdx * 9973L + charIdx * 7919L)
 
-            // 检查是否需要换行
-            val charWidth = textPaint.measureText(char.toString())
-            if (currentX > bitmapWidth - padding) {
-                y += lineHeight
-                currentX = x
+            val sizeScale = 0.88f + charRandom.nextFloat() * 0.24f
+            val charPaint = AndroidTextPaint().apply {
+                isAntiAlias = true
+                textSize = baseTextSize * sizeScale
+                val alpha = (0.55f + charRandom.nextFloat() * 0.45f) * 255
+                color = Color.argb(alpha.toInt(), 25, 28, 32)
+                isFakeBoldText = charRandom.nextFloat() < 0.15f
             }
+
+            val charWidth = charPaint.measureText(charText)
+
+            if (currentX + charWidth > availableWidth && currentX > padding) {
+                baseY += lineHeight + waveAmplitude * 2 + 8
+                currentX = padding.toFloat()
+                prevWasSameType = false
+                sameTypeGroupY = 0f
+            }
+
+            val currentIsSameType = isSameTypeChar(ch)
+            val charY: Float
+            if (currentIsSameType && prevWasSameType) {
+                charY = sameTypeGroupY
+            } else {
+                val progress = currentX / bitmapWidth.toFloat()
+                val angle = progress * Math.PI.toFloat() * 2f * frequency + phase
+                val sineOffsetY = amplitude * sin(angle.toDouble()).toFloat()
+                charY = baseY + sineOffsetY
+                sameTypeGroupY = charY
+            }
+            prevWasSameType = currentIsSameType
+
+            val charX = currentX
+
+            val rotation = (charRandom.nextFloat() - 0.5f) * 28f
 
             canvas.save()
-            val charX = currentX + spacingPerturbation
-            canvas.translate(charX, y)
-            canvas.rotate(rotation.toFloat())
-
-            val shadowPaint = Paint(textPaint).apply {
-                color = Color.argb((alpha * 0.3).toInt(), 0, 0, 0)
-                maskFilter = BlurMaskFilter(3f, BlurMaskFilter.Blur.NORMAL)
-            }
-            canvas.drawText(char.toString(), 2f, 2f, shadowPaint)
-
-            canvas.drawText(char.toString(), 0f, 0f, textPaint)
+            canvas.rotate(rotation, charX + charWidth / 2, charY)
+            canvas.drawText(charText, charX, charY, charPaint)
             canvas.restore()
 
-            val overlapFactor = random3.nextFloat() * 0.3f
-            currentX = charX + charWidth * (1 - overlapFactor)
+            if (charRandom.nextFloat() < 0.10f) {
+                val sx = charX + charRandom.nextFloat() * charWidth
+                val sy = charY - charRandom.nextFloat() * 18
+                val path = Path()
+                path.moveTo(sx, sy)
+                val dx = sx + (charRandom.nextFloat() - 0.5f) * 18
+                val dy = sy + charRandom.nextFloat() * 22
+                val cpx = (sx + dx) / 2 + (charRandom.nextFloat() - 0.5f) * 14
+                val cpy = (sy + dy) / 2 + (charRandom.nextFloat() - 0.5f) * 14
+                path.quadTo(cpx, cpy, dx, dy)
+                canvas.drawPath(path, Paint().apply {
+                    color = Color.argb(
+                        (charRandom.nextFloat() * 70 + 30).toInt(), 30, 35, 35
+                    )
+                    strokeWidth = 0.7f + charRandom.nextFloat() * 1.6f
+                    isAntiAlias = true
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                })
+            }
+
+            val spacing = charWidth * (0.88f + charRandom.nextFloat() * 0.26f)
+            currentX += spacing + (charRandom.nextFloat() - 0.45f) * 6
         }
-        y += lineHeight
+
+        baseY += lineHeight + waveAmplitude * 2 + 8
     }
 
     return bitmap
+}
+
+private fun isSameTypeChar(c: Char): Boolean = when (c) {
+    in '0'..'9' -> true
+    in 'a'..'z' -> true
+    in 'A'..'Z' -> true
+    in '!'..'/' -> true
+    in ':'..'@' -> true
+    in '['..'`' -> true
+    in '{'..'~' -> true
+    else -> false
 }
 
 fun addBackgroundTexture(canvas: Canvas, width: Int, height: Int) {
@@ -361,7 +403,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     val newHeight = result.height
 
     val linePaint1 = Paint().apply {
-        color = Color.argb(40, 0, 0, 0)
+        color = Color.argb(55, 0, 0, 0)
         strokeWidth = 1.5f
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -381,7 +423,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     val linePaint2 = Paint().apply {
-        color = Color.argb(35, 0, 0, 0)
+        color = Color.argb(48, 0, 0, 0)
         strokeWidth = 1.2f
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -402,7 +444,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     val linePaint3 = Paint().apply {
-        color = Color.argb(25, 50, 50, 50)
+        color = Color.argb(35, 50, 50, 50)
         strokeWidth = 1f
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -420,7 +462,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     val linePaint4 = Paint().apply {
-        color = Color.argb(28, 0, 0, 0)
+        color = Color.argb(38, 0, 0, 0)
         strokeWidth = 1f
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -440,7 +482,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     val linePaint5 = Paint().apply {
-        color = Color.argb(22, 0, 0, 0)
+        color = Color.argb(32, 0, 0, 0)
         strokeWidth = 1f
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -457,6 +499,26 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
             path5.lineTo(baseX + waveOffset, y.toFloat())
         }
         canvas.drawPath(path5, linePaint5)
+    }
+
+    val linePaint6 = Paint().apply {
+        color = Color.argb(30, 40, 40, 40)
+        strokeWidth = 0.8f
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+    }
+
+    val spacing6 = 7
+    val path6 = Path()
+    for (i in -newHeight / spacing6 until newWidth / spacing6 + newHeight / spacing6) {
+        val baseX = (i * spacing6).toFloat()
+        path6.reset()
+        path6.moveTo(baseX, 0f)
+        for (y in 0..newHeight step 6) {
+            val waveOffset = (sin(y * 0.11 + 2.3) * 8 + cos(y * 0.07) * 5).toFloat()
+            path6.lineTo(baseX + y * 0.7f + waveOffset, y.toFloat())
+        }
+        canvas.drawPath(path6, linePaint6)
     }
 
     // 降低对比度
