@@ -154,7 +154,7 @@ fun MainScreen() {
         if (currentBitmap.value != null) {
             androidx.compose.foundation.Image(
                 bitmap = currentBitmap.value!!.asImageBitmap(),
-                contentDescription = "Generated Image",
+                contentDescription = stringResource(R.string.generated_image_content_description),
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -265,11 +265,12 @@ fun textToBitmap(text: String): Bitmap {
             val charRandom = Random(seed + lineIdx * 9973L + charIdx * 7919L)
 
             val sizeScale = 0.88f + charRandom.nextFloat() * 0.24f
+            val baseAlpha = 0.55f + charRandom.nextFloat() * 0.45f
+            val charAlpha = (baseAlpha * 255).toInt()
             val charPaint = AndroidTextPaint().apply {
                 isAntiAlias = true
                 textSize = baseTextSize * sizeScale
-                val alpha = (0.55f + charRandom.nextFloat() * 0.45f) * 255
-                color = Color.argb(alpha.toInt(), 25, 28, 32)
+                color = Color.argb(charAlpha, 25, 28, 32)
                 isFakeBoldText = charRandom.nextFloat() < 0.15f
             }
 
@@ -298,9 +299,45 @@ fun textToBitmap(text: String): Bitmap {
             val charX = currentX
 
             val rotation = (charRandom.nextFloat() - 0.5f) * 28f
+            val deformSkewX = (charRandom.nextFloat() - 0.5f) * 0.16f
+            val deformSkewY = (charRandom.nextFloat() - 0.5f) * 0.12f
+            val deformScaleX = 0.85f + charRandom.nextFloat() * 0.30f
+            val deformScaleY = 0.85f + charRandom.nextFloat() * 0.30f
+            val has3D = charRandom.nextFloat() < 0.35f
+            val isOutline = charRandom.nextFloat() < 0.25f
+            val centerX = charX + charWidth / 2
+            val centerY = charY
+
+            if (has3D) {
+                val depthLayers = 3 + charRandom.nextInt(3)
+                for (layer in 1..depthLayers) {
+                    val offset = layer * 1.0f
+                    val layerFraction = baseAlpha * (0.65f - layer * 0.12f) * 0.35f
+                    val layerAlpha = maxOf((layerFraction * 255).toInt(), 6)
+                    val layerPaint = AndroidTextPaint(charPaint).apply {
+                        color = Color.argb(layerAlpha, 20, 22, 26)
+                        style = Paint.Style.FILL
+                    }
+                    canvas.drawText(charText, charX + offset, charY + offset, layerPaint)
+                }
+            }
 
             canvas.save()
-            canvas.rotate(rotation, charX + charWidth / 2, charY)
+            canvas.translate(centerX, centerY)
+            canvas.rotate(rotation)
+            canvas.skew(deformSkewX, deformSkewY)
+            canvas.scale(deformScaleX, deformScaleY)
+            canvas.translate(-centerX, -centerY)
+
+            if (isOutline) {
+                val outlinePaint = AndroidTextPaint(charPaint).apply {
+                    style = Paint.Style.STROKE
+                    strokeWidth = 1.2f + charRandom.nextFloat() * 2.2f
+                    alpha = (baseAlpha * 0.85f * 255).toInt()
+                }
+                canvas.drawText(charText, charX, charY, outlinePaint)
+            }
+
             canvas.drawText(charText, charX, charY, charPaint)
             canvas.restore()
 
@@ -618,9 +655,9 @@ fun shareBitmap(context: android.content.Context, bitmap: Bitmap) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
-        context.startActivity(Intent.createChooser(shareIntent, "分享图片"))
+        context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_chooser_title)))
     } catch (e: Exception) {
         e.printStackTrace()
-        Toast.makeText(context, "分享失败", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
     }
 }

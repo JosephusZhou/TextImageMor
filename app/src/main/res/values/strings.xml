@@ -7,6 +7,9 @@
     <string name="button_share">分享图片</string>
     <string name="button_save">保存到本地</string>
     <string name="button_clear">清空图片</string>
+    <string name="generated_image_content_description">生成的图片</string>
     <string name="save_success">图片已保存到Pictures目录</string>
     <string name="save_failed">保存失败，请检查权限</string>
+    <string name="share_chooser_title">分享图片</string>
+    <string name="share_failed">分享失败</string>
 </resources>
