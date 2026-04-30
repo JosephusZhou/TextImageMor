@@ -7,6 +7,10 @@
     <string name="button_share">分享图片</string>
     <string name="button_save">保存到本地</string>
     <string name="button_clear">清空图片</string>
+    <string name="label_protection_strength">防识别强度</string>
+    <string name="strength_light">轻度</string>
+    <string name="strength_medium">中度</string>
+    <string name="strength_strong">强力</string>
     <string name="generated_image_content_description">生成的图片</string>
     <string name="save_success">图片已保存到Pictures目录</string>
     <string name="save_failed">保存失败，请检查权限</string>

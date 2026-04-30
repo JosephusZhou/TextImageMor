@@ -11,6 +11,8 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
@@ -51,7 +53,9 @@ import androidx.core.content.FileProvider
 import androidx.core.graphics.createBitmap
 import androidx.core.view.WindowCompat
 import java.util.Random
+import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 import android.text.TextPaint as AndroidTextPaint
 
@@ -79,12 +83,25 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private enum class ProtectionStrength(
+    val edgeInterference: Float,
+    val warpAmount: Float,
+    val moireAmount: Float,
+    val channelShift: Float,
+    val jpegQuality: Int
+) {
+    Light(edgeInterference = 0.7f, warpAmount = 0f, moireAmount = 0.75f, channelShift = 0f, jpegQuality = 95),
+    Medium(edgeInterference = 1.0f, warpAmount = 7f, moireAmount = 1.0f, channelShift = 1.5f, jpegQuality = 88),
+    Strong(edgeInterference = 1.45f, warpAmount = 13f, moireAmount = 1.3f, channelShift = 2.4f, jpegQuality = 82)
+}
+
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val inputText = remember { mutableStateOf("") }
     val currentBitmap = remember { mutableStateOf<Bitmap?>(null) }
+    val selectedStrength = remember { mutableStateOf(ProtectionStrength.Medium) }
     val scrollState = rememberScrollState()
     val saveFailedText = stringResource(R.string.save_failed)
 
@@ -93,7 +110,7 @@ fun MainScreen() {
     ) { isGranted: Boolean ->
         if (isGranted) {
             currentBitmap.value?.let { bmp ->
-                saveBitmapToGallery(context, bmp)
+                saveBitmapToGallery(context, bmp, selectedStrength.value.jpegQuality)
             }
         } else {
             Toast.makeText(context, saveFailedText, Toast.LENGTH_SHORT).show()
@@ -125,6 +142,38 @@ fun MainScreen() {
             maxLines = 10
         )
 
+        Text(
+            text = stringResource(R.string.label_protection_strength),
+            fontWeight = FontWeight.Bold
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StrengthButton(
+                label = stringResource(R.string.strength_light),
+                strength = ProtectionStrength.Light,
+                selectedStrength = selectedStrength.value,
+                onSelected = { selectedStrength.value = it },
+                modifier = Modifier.weight(1f)
+            )
+            StrengthButton(
+                label = stringResource(R.string.strength_medium),
+                strength = ProtectionStrength.Medium,
+                selectedStrength = selectedStrength.value,
+                onSelected = { selectedStrength.value = it },
+                modifier = Modifier.weight(1f)
+            )
+            StrengthButton(
+                label = stringResource(R.string.strength_strong),
+                strength = ProtectionStrength.Strong,
+                selectedStrength = selectedStrength.value,
+                onSelected = { selectedStrength.value = it },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -139,9 +188,11 @@ fun MainScreen() {
             Button(
                 onClick = {
                     if (inputText.value.isNotEmpty()) {
-                        val bitmap = textToBitmap(inputText.value)
-                        val bitmapWithMoire = addMoireEffect(bitmap)
-                        currentBitmap.value = bitmapWithMoire
+                        val strength = selectedStrength.value
+                        val bitmap = textToBitmap(inputText.value, strength)
+                        val warpedBitmap = addElasticWarp(bitmap, strength)
+                        val bitmapWithMoire = addMoireEffect(warpedBitmap, strength)
+                        currentBitmap.value = addChromaticAberration(bitmapWithMoire, strength)
                         keyboardController?.hide()
                     }
                 },
@@ -165,7 +216,7 @@ fun MainScreen() {
                 Button(
                     onClick = {
                         currentBitmap.value?.let { bmp ->
-                            shareBitmap(context, bmp)
+                            shareBitmap(context, bmp, selectedStrength.value.jpegQuality)
                         }
                     },
                     modifier = Modifier.weight(1f)
@@ -179,7 +230,7 @@ fun MainScreen() {
                             if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
                                 requestPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                             } else {
-                                saveBitmapToGallery(context, bmp)
+                                saveBitmapToGallery(context, bmp, selectedStrength.value.jpegQuality)
                             }
                         } ?: run {
                             Toast.makeText(context, saveFailedText, Toast.LENGTH_SHORT).show()
@@ -203,7 +254,23 @@ fun MainScreen() {
     }
 }
 
-fun textToBitmap(text: String): Bitmap {
+@Composable
+private fun StrengthButton(
+    label: String,
+    strength: ProtectionStrength,
+    selectedStrength: ProtectionStrength,
+    onSelected: (ProtectionStrength) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = { onSelected(strength) },
+        modifier = modifier
+    ) {
+        Text(if (strength == selectedStrength) "$label *" else label)
+    }
+}
+
+private fun textToBitmap(text: String, strength: ProtectionStrength): Bitmap {
     val baseTextSize = 56f
     val padding = 60
     val bitmapWidth = 1080
@@ -341,7 +408,8 @@ fun textToBitmap(text: String): Bitmap {
             canvas.drawText(charText, charX, charY, charPaint)
             canvas.restore()
 
-            if (charRandom.nextFloat() < 0.10f) {
+            val scratchChance = 0.10f * strength.edgeInterference
+            if (charRandom.nextFloat() < scratchChance) {
                 val sx = charX + charRandom.nextFloat() * charWidth
                 val sy = charY - charRandom.nextFloat() * 18
                 val path = Path()
@@ -362,6 +430,13 @@ fun textToBitmap(text: String): Bitmap {
                 })
             }
 
+            val edgeMarks = if (strength == ProtectionStrength.Strong) 2 else 1
+            repeat(edgeMarks) {
+                if (charRandom.nextFloat() < 0.22f * strength.edgeInterference) {
+                    drawEdgeInterference(canvas, charRandom, charX, charY, charWidth, baseTextSize, strength)
+                }
+            }
+
             val spacing = charWidth * (0.88f + charRandom.nextFloat() * 0.26f)
             currentX += spacing + (charRandom.nextFloat() - 0.45f) * 6
         }
@@ -370,6 +445,43 @@ fun textToBitmap(text: String): Bitmap {
     }
 
     return bitmap
+}
+
+private fun drawEdgeInterference(
+    canvas: Canvas,
+    random: Random,
+    charX: Float,
+    charY: Float,
+    charWidth: Float,
+    baseTextSize: Float,
+    strength: ProtectionStrength
+) {
+    val path = Path()
+    val startX = charX + random.nextFloat() * charWidth
+    val startY = charY - baseTextSize * (0.65f + random.nextFloat() * 0.25f)
+    val endX = charX + random.nextFloat() * charWidth
+    val endY = charY + baseTextSize * (random.nextFloat() * 0.18f)
+    path.moveTo(startX, startY)
+    path.cubicTo(
+        startX + (random.nextFloat() - 0.5f) * 26f,
+        startY + random.nextFloat() * 22f,
+        endX + (random.nextFloat() - 0.5f) * 26f,
+        endY - random.nextFloat() * 22f,
+        endX,
+        endY
+    )
+    val paint = Paint().apply {
+        color = if (random.nextBoolean()) {
+            Color.argb((45 * strength.edgeInterference).toInt().coerceIn(18, 95), 22, 26, 30)
+        } else {
+            Color.argb((60 * strength.edgeInterference).toInt().coerceIn(24, 110), 238, 238, 230)
+        }
+        strokeWidth = 0.9f + random.nextFloat() * 2.4f * strength.edgeInterference
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    canvas.drawPath(path, paint)
 }
 
 private fun isSameTypeChar(c: Char): Boolean = when (c) {
@@ -383,7 +495,7 @@ private fun isSameTypeChar(c: Char): Boolean = when (c) {
     else -> false
 }
 
-fun addBackgroundTexture(canvas: Canvas, width: Int, height: Int) {
+private fun addBackgroundTexture(canvas: Canvas, width: Int, height: Int) {
     val random = Random()
     canvas.drawColor(Color.argb(255, 245, 245, 240))
 
@@ -429,9 +541,39 @@ fun addBackgroundTexture(canvas: Canvas, width: Int, height: Int) {
     canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), gradientPaint)
 }
 
-fun addMoireEffect(bitmap: Bitmap): Bitmap {
-    val width = bitmap.width
-    val height = bitmap.height
+private fun addElasticWarp(bitmap: Bitmap, strength: ProtectionStrength): Bitmap {
+    if (strength.warpAmount <= 0f) return bitmap
+
+    val result = createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(result)
+    val paint = Paint().apply {
+        isAntiAlias = true
+        isFilterBitmap = true
+    }
+    val random = Random(bitmap.width * 31L + bitmap.height * 17L)
+    val phaseX = random.nextFloat() * PI.toFloat() * 2f
+    val phaseY = random.nextFloat() * PI.toFloat() * 2f
+    val sliceHeight = 3
+
+    for (y in 0 until bitmap.height step sliceHeight) {
+        val bottom = min(y + sliceHeight, bitmap.height)
+        val progress = y / bitmap.height.toFloat()
+        val shiftX = (
+            sin(progress * PI * 7.0 + phaseX) * strength.warpAmount +
+                cos(progress * PI * 13.0 + phaseY) * strength.warpAmount * 0.45f
+            ).toFloat()
+        val shiftY = (sin(progress * PI * 5.0 + phaseY) * strength.warpAmount * 0.18f).toFloat()
+        canvas.drawBitmap(
+            bitmap,
+            Rect(0, y, bitmap.width, bottom),
+            RectF(shiftX, y + shiftY, bitmap.width + shiftX, bottom + shiftY),
+            paint
+        )
+    }
+    return result
+}
+
+private fun addMoireEffect(bitmap: Bitmap, strength: ProtectionStrength): Bitmap {
 
     // 直接使用原始图片，不需要整体旋转
     val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
@@ -440,8 +582,8 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     val newHeight = result.height
 
     val linePaint1 = Paint().apply {
-        color = Color.argb(55, 0, 0, 0)
-        strokeWidth = 1.5f
+        color = Color.argb((55 * strength.moireAmount).toInt().coerceIn(18, 82), 0, 0, 0)
+        strokeWidth = 1.5f * strength.moireAmount
         isAntiAlias = true
         style = Paint.Style.STROKE
     }
@@ -453,15 +595,15 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
         path1.reset()
         path1.moveTo(baseX, 0f)
         for (y in 0..newHeight step 8) {
-            val waveOffset = (sin(y * 0.1) * 12 + cos(y * 0.06) * 8).toFloat()
+            val waveOffset = (sin(y * 0.1) * 12 + cos(y * 0.06) * 8 + sin((i + y) * 0.017) * 9 * strength.moireAmount).toFloat()
             path1.lineTo(baseX + y * 0.8f + waveOffset, y.toFloat())
         }
         canvas.drawPath(path1, linePaint1)
     }
 
     val linePaint2 = Paint().apply {
-        color = Color.argb(48, 0, 0, 0)
-        strokeWidth = 1.2f
+        color = Color.argb((48 * strength.moireAmount).toInt().coerceIn(16, 74), 0, 0, 0)
+        strokeWidth = 1.2f * strength.moireAmount
         isAntiAlias = true
         style = Paint.Style.STROKE
     }
@@ -481,8 +623,8 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     val linePaint3 = Paint().apply {
-        color = Color.argb(35, 50, 50, 50)
-        strokeWidth = 1f
+        color = Color.argb((35 * strength.moireAmount).toInt().coerceIn(12, 58), 50, 50, 50)
+        strokeWidth = 1f * strength.moireAmount
         isAntiAlias = true
         style = Paint.Style.STROKE
     }
@@ -499,7 +641,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     val linePaint4 = Paint().apply {
-        color = Color.argb(38, 0, 0, 0)
+        color = Color.argb((38 * strength.moireAmount).toInt().coerceIn(12, 60), 0, 0, 0)
         strokeWidth = 1f
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -519,7 +661,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     val linePaint5 = Paint().apply {
-        color = Color.argb(32, 0, 0, 0)
+        color = Color.argb((32 * strength.moireAmount).toInt().coerceIn(10, 54), 0, 0, 0)
         strokeWidth = 1f
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -539,7 +681,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     val linePaint6 = Paint().apply {
-        color = Color.argb(30, 40, 40, 40)
+        color = Color.argb((30 * strength.moireAmount).toInt().coerceIn(10, 52), 40, 40, 40)
         strokeWidth = 0.8f
         isAntiAlias = true
         style = Paint.Style.STROKE
@@ -559,8 +701,11 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     }
 
     // 降低对比度
+    addBrokenMoire(canvas, newWidth, newHeight, strength)
+
+    val contrastScale = 0.92f - (strength.moireAmount - 0.75f) * 0.08f
     val contrastMatrix = ColorMatrix().apply {
-        setScale(0.9f, 0.9f, 0.9f, 1f)
+        setScale(contrastScale, contrastScale, contrastScale, 1f)
     }
     val contrastPaint = Paint().apply {
         colorFilter = ColorMatrixColorFilter(contrastMatrix)
@@ -576,7 +721,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
         contrastBitmap.copy(Bitmap.Config.ARGB_8888, true)
     val noiseCanvas = Canvas(noiseBitmap)
     val random = Random()
-    val noiseDensity = 0.03
+    val noiseDensity = 0.025 + strength.moireAmount * 0.012
     val totalPixels = newWidth * newHeight
     val noisePixels = (totalPixels * noiseDensity).toInt()
 
@@ -585,7 +730,7 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
         val y = random.nextInt(newHeight)
         val noisePaint = Paint().apply {
             color = Color.argb(
-                random.nextInt(5) + 8,
+                random.nextInt(7) + (7 * strength.moireAmount).toInt(),
                 random.nextInt(20),
                 random.nextInt(20),
                 random.nextInt(20)
@@ -598,7 +743,66 @@ fun addMoireEffect(bitmap: Bitmap): Bitmap {
     return noiseBitmap
 }
 
-fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap) {
+private fun addBrokenMoire(canvas: Canvas, width: Int, height: Int, strength: ProtectionStrength) {
+    val random = Random(width * 13L + height * 29L + strength.ordinal)
+    val paint = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    val lineCount = (height / 18 * strength.moireAmount).toInt().coerceAtLeast(12)
+    repeat(lineCount) {
+        paint.color = Color.argb(random.nextInt(28) + (18 * strength.moireAmount).toInt(), 20, 22, 24)
+        paint.strokeWidth = 0.7f + random.nextFloat() * 1.5f * strength.moireAmount
+        val y = random.nextInt(height).toFloat()
+        var x = -random.nextInt(80).toFloat()
+        while (x < width) {
+            val segment = 24f + random.nextFloat() * 90f
+            val gap = 10f + random.nextFloat() * 55f
+            val path = Path()
+            path.moveTo(x, y + (random.nextFloat() - 0.5f) * 18f)
+            path.quadTo(
+                x + segment / 2f,
+                y + (random.nextFloat() - 0.5f) * 34f,
+                x + segment,
+                y + (random.nextFloat() - 0.5f) * 18f
+            )
+            canvas.drawPath(path, paint)
+            x += segment + gap
+        }
+    }
+}
+
+private fun addChromaticAberration(bitmap: Bitmap, strength: ProtectionStrength): Bitmap {
+    if (strength.channelShift <= 0f) return bitmap
+
+    val result = createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(result)
+    val redPaint = Paint().apply {
+        alpha = 70
+        colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+            1f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        )))
+    }
+    val bluePaint = Paint().apply {
+        alpha = 70
+        colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 0f, 0f, 0f,
+            0f, 0f, 1f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        )))
+    }
+    canvas.drawBitmap(bitmap, 0f, 0f, null)
+    canvas.drawBitmap(bitmap, -strength.channelShift, 0.7f, redPaint)
+    canvas.drawBitmap(bitmap, strength.channelShift, -0.7f, bluePaint)
+    return result
+}
+
+private fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap, jpegQuality: Int) {
     val timestamp =
         java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
     val filename = "TextImageMor_$timestamp.jpg"
@@ -618,7 +822,7 @@ fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap) {
         try {
             val outputStream = resolver.openOutputStream(uri)
             if (outputStream != null) {
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+                bitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, outputStream)
                 outputStream.close()
                 Toast.makeText(context, context.getString(R.string.save_success), Toast.LENGTH_SHORT).show()
             } else {
@@ -633,13 +837,13 @@ fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap) {
     }
 }
 
-fun shareBitmap(context: android.content.Context, bitmap: Bitmap) {
+private fun shareBitmap(context: android.content.Context, bitmap: Bitmap, jpegQuality: Int) {
     try {
         val cacheDir = context.externalCacheDir ?: context.cacheDir
         val imageFile = java.io.File(cacheDir, "share_image_${System.currentTimeMillis()}.jpg")
 
         val outputStream = java.io.FileOutputStream(imageFile)
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, outputStream)
         outputStream.flush()
         outputStream.close()
 
