@@ -37,10 +37,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -90,9 +92,57 @@ private enum class ProtectionStrength(
     val channelShift: Float,
     val jpegQuality: Int
 ) {
-    Light(edgeInterference = 0.7f, warpAmount = 0f, moireAmount = 0.75f, channelShift = 0f, jpegQuality = 95),
-    Medium(edgeInterference = 1.0f, warpAmount = 7f, moireAmount = 1.0f, channelShift = 1.5f, jpegQuality = 88),
-    Strong(edgeInterference = 1.45f, warpAmount = 13f, moireAmount = 1.3f, channelShift = 2.4f, jpegQuality = 82)
+    Light(
+        edgeInterference = 0.7f,
+        warpAmount = 0f,
+        moireAmount = 0.75f,
+        channelShift = 0f,
+        jpegQuality = 95
+    ),
+    Medium(
+        edgeInterference = 1.0f,
+        warpAmount = 7f,
+        moireAmount = 1.0f,
+        channelShift = 1.5f,
+        jpegQuality = 88
+    ),
+    Strong(
+        edgeInterference = 1.45f,
+        warpAmount = 13f,
+        moireAmount = 1.3f,
+        channelShift = 2.4f,
+        jpegQuality = 82
+    )
+}
+
+private enum class AdvancedProtectionStrength(
+    val adversarialNoiseAmplitude: Float,
+    val textureOverlayAlpha: Int,
+    val edgePerturbationOffset: Int,
+    val channelNoiseAmplitude: FloatArray,
+    val localBlurProbability: Float
+) {
+    Light(
+        adversarialNoiseAmplitude = 4f,
+        textureOverlayAlpha = 18,
+        edgePerturbationOffset = 1,
+        channelNoiseAmplitude = floatArrayOf(3f, 4f, 3f),
+        localBlurProbability = 0.20f
+    ),
+    Medium(
+        adversarialNoiseAmplitude = 6.5f,
+        textureOverlayAlpha = 24,
+        edgePerturbationOffset = 2,
+        channelNoiseAmplitude = floatArrayOf(5f, 6f, 5f),
+        localBlurProbability = 0.30f
+    ),
+    Strong(
+        adversarialNoiseAmplitude = 10f,
+        textureOverlayAlpha = 33,
+        edgePerturbationOffset = 3,
+        channelNoiseAmplitude = floatArrayOf(7f, 9f, 8f),
+        localBlurProbability = 0.40f
+    )
 }
 
 @Composable
@@ -102,6 +152,8 @@ fun MainScreen() {
     val inputText = remember { mutableStateOf("") }
     val currentBitmap = remember { mutableStateOf<Bitmap?>(null) }
     val selectedStrength = remember { mutableStateOf(ProtectionStrength.Medium) }
+    val antiRecognitionEnabled = remember { mutableStateOf(false) }
+    val selectedAdvancedStrength = remember { mutableStateOf(AdvancedProtectionStrength.Medium) }
     val scrollState = rememberScrollState()
     val saveFailedText = stringResource(R.string.save_failed)
 
@@ -175,6 +227,67 @@ fun MainScreen() {
         }
 
         Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.label_anti_recognition),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = stringResource(R.string.description_anti_recognition),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = antiRecognitionEnabled.value,
+                onCheckedChange = { antiRecognitionEnabled.value = it },
+                modifier = Modifier.padding(start = 8.dp)
+            )
+        }
+
+        if (antiRecognitionEnabled.value) {
+            Text(
+                text = stringResource(R.string.label_advanced_strength),
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AdvancedStrengthButton(
+                    label = stringResource(R.string.strength_light),
+                    strength = AdvancedProtectionStrength.Light,
+                    selectedStrength = selectedAdvancedStrength.value,
+                    onSelected = { selectedAdvancedStrength.value = it },
+                    modifier = Modifier.weight(1f)
+                )
+                AdvancedStrengthButton(
+                    label = stringResource(R.string.strength_medium),
+                    strength = AdvancedProtectionStrength.Medium,
+                    selectedStrength = selectedAdvancedStrength.value,
+                    onSelected = { selectedAdvancedStrength.value = it },
+                    modifier = Modifier.weight(1f)
+                )
+                AdvancedStrengthButton(
+                    label = stringResource(R.string.strength_strong),
+                    strength = AdvancedProtectionStrength.Strong,
+                    selectedStrength = selectedAdvancedStrength.value,
+                    onSelected = { selectedAdvancedStrength.value = it },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -192,7 +305,13 @@ fun MainScreen() {
                         val bitmap = textToBitmap(inputText.value, strength)
                         val warpedBitmap = addElasticWarp(bitmap, strength)
                         val bitmapWithMoire = addMoireEffect(warpedBitmap, strength)
-                        currentBitmap.value = addChromaticAberration(bitmapWithMoire, strength)
+                        val bitmapWithAberration = addChromaticAberration(bitmapWithMoire, strength)
+
+                        currentBitmap.value = if (antiRecognitionEnabled.value) {
+                            addAntiRecognitionEnhancement(bitmapWithAberration, selectedAdvancedStrength.value)
+                        } else {
+                            bitmapWithAberration
+                        }
                         keyboardController?.hide()
                     }
                 },
@@ -260,6 +379,22 @@ private fun StrengthButton(
     strength: ProtectionStrength,
     selectedStrength: ProtectionStrength,
     onSelected: (ProtectionStrength) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = { onSelected(strength) },
+        modifier = modifier
+    ) {
+        Text(if (strength == selectedStrength) "$label *" else label)
+    }
+}
+
+@Composable
+private fun AdvancedStrengthButton(
+    label: String,
+    strength: AdvancedProtectionStrength,
+    selectedStrength: AdvancedProtectionStrength,
+    onSelected: (AdvancedProtectionStrength) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Button(
@@ -864,4 +999,429 @@ private fun shareBitmap(context: android.content.Context, bitmap: Bitmap, jpegQu
         e.printStackTrace()
         Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
     }
+}
+
+private fun addAntiRecognitionEnhancement(
+    bitmap: Bitmap,
+    strength: AdvancedProtectionStrength,
+    seed: Long = System.currentTimeMillis()
+): Bitmap {
+    val width = bitmap.width
+    val height = bitmap.height
+    val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+    val random = Random(seed)
+
+    applyAdversarialNoise(result, strength, random)
+    applyChannelIndependentNoise(result, strength, random)
+    applyEdgePerturbation(result, strength, random)
+    applyLocalBlurSharpen(result, strength, random)
+
+    val canvas = Canvas(result)
+    applyTextureOverlay(canvas, width, height, strength, random)
+
+    return result
+}
+
+private fun applyAdversarialNoise(
+    bitmap: Bitmap,
+    strength: AdvancedProtectionStrength,
+    random: Random
+) {
+    val width = bitmap.width
+    val height = bitmap.height
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+    val frequency = 0.15f + strength.adversarialNoiseAmplitude * 0.01f
+    val amplitude = strength.adversarialNoiseAmplitude
+    val seed = random.nextLong()
+
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            val idx = y * width + x
+            val pixel = pixels[idx]
+
+            val noise = perlinNoise(x.toFloat(), y.toFloat(), frequency, seed)
+            val noiseValue = (noise * amplitude).toInt()
+
+            val a = Color.alpha(pixel)
+            val r = (Color.red(pixel) + noiseValue).coerceIn(0, 255)
+            val g = (Color.green(pixel) + noiseValue).coerceIn(0, 255)
+            val b = (Color.blue(pixel) + noiseValue).coerceIn(0, 255)
+
+            pixels[idx] = Color.argb(a, r, g, b)
+        }
+    }
+
+    bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+}
+
+private fun applyChannelIndependentNoise(
+    bitmap: Bitmap,
+    strength: AdvancedProtectionStrength,
+    random: Random
+) {
+    val width = bitmap.width
+    val height = bitmap.height
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+    val rAmplitude = strength.channelNoiseAmplitude[0]
+    val gAmplitude = strength.channelNoiseAmplitude[1]
+    val bAmplitude = strength.channelNoiseAmplitude[2]
+    val seedR = random.nextLong()
+    val seedG = random.nextLong()
+    val seedB = random.nextLong()
+
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            val idx = y * width + x
+            val pixel = pixels[idx]
+
+            val noiseR = (perlinNoise(x.toFloat(), y.toFloat(), 0.2f, seedR) * rAmplitude).toInt()
+            val noiseG = (perlinNoise(x.toFloat() + 1f, y.toFloat() + 2f, 0.2f, seedG) * gAmplitude).toInt()
+            val noiseB = (perlinNoise(x.toFloat() + 2f, y.toFloat() + 3f, 0.2f, seedB) * bAmplitude).toInt()
+
+            val a = Color.alpha(pixel)
+            val r = (Color.red(pixel) + noiseR).coerceIn(0, 255)
+            val g = (Color.green(pixel) + noiseG).coerceIn(0, 255)
+            val b = (Color.blue(pixel) + noiseB).coerceIn(0, 255)
+
+            pixels[idx] = Color.argb(a, r, g, b)
+        }
+    }
+
+    bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+}
+
+private fun applyEdgePerturbation(
+    bitmap: Bitmap,
+    strength: AdvancedProtectionStrength,
+    random: Random
+) {
+    val width = bitmap.width
+    val height = bitmap.height
+    val threshold = when (strength) {
+        AdvancedProtectionStrength.Light -> 40
+        AdvancedProtectionStrength.Medium -> 35
+        AdvancedProtectionStrength.Strong -> 30
+    }
+
+    val edges = detectEdges(bitmap, threshold)
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    val newPixels = pixels.clone()
+
+    val probability = when (strength) {
+        AdvancedProtectionStrength.Light -> 0.15f
+        AdvancedProtectionStrength.Medium -> 0.25f
+        AdvancedProtectionStrength.Strong -> 0.35f
+    }
+
+    for (y in 1 until height - 1) {
+        for (x in 1 until width - 1) {
+            val idx = y * width + x
+            if (edges[idx] && random.nextFloat() < probability) {
+                val offsetX = random.nextInt(strength.edgePerturbationOffset * 2 + 1) - strength.edgePerturbationOffset
+                val offsetY = random.nextInt(strength.edgePerturbationOffset * 2 + 1) - strength.edgePerturbationOffset
+                val newX = (x + offsetX).coerceIn(0, width - 1)
+                val newY = (y + offsetY).coerceIn(0, height - 1)
+                val sourceIdx = newY * width + newX
+                newPixels[idx] = pixels[sourceIdx]
+            }
+        }
+    }
+
+    bitmap.setPixels(newPixels, 0, width, 0, 0, width, height)
+}
+
+private fun applyLocalBlurSharpen(
+    bitmap: Bitmap,
+    strength: AdvancedProtectionStrength,
+    random: Random
+) {
+    val width = bitmap.width
+    val height = bitmap.height
+    val regionSize = when (strength) {
+        AdvancedProtectionStrength.Light -> 80
+        AdvancedProtectionStrength.Medium -> 60
+        AdvancedProtectionStrength.Strong -> 40
+    }
+
+    val probability = strength.localBlurProbability
+
+    for (y in 0 until height step regionSize) {
+        for (x in 0 until width step regionSize) {
+            if (random.nextFloat() < probability) {
+                val radius = 1.5f + strength.localBlurProbability * 2.5f
+                if (random.nextBoolean()) {
+                    applyGaussianBlur(bitmap, x, y, radius, regionSize)
+                } else {
+                    applySharpen(bitmap, x, y, regionSize)
+                }
+            }
+        }
+    }
+}
+
+private fun applyTextureOverlay(
+    canvas: Canvas,
+    width: Int,
+    height: Int,
+    strength: AdvancedProtectionStrength,
+    random: Random
+) {
+    val alpha = strength.textureOverlayAlpha
+    val dotSpacing = when (strength) {
+        AdvancedProtectionStrength.Light -> 10
+        AdvancedProtectionStrength.Medium -> 8
+        AdvancedProtectionStrength.Strong -> 6
+    }
+
+    val dotPaint = Paint().apply {
+        color = Color.argb(alpha, 40, 40, 40)
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+
+    for (y in 0 until height step dotSpacing) {
+        for (x in 0 until width step dotSpacing) {
+            if (random.nextFloat() < 0.3f) {
+                val radius = 1.5f + random.nextFloat() * 1.5f
+                canvas.drawCircle(x.toFloat(), y.toFloat(), radius, dotPaint)
+            }
+        }
+    }
+
+    val lineWidth = 0.5f + strength.textureOverlayAlpha * 0.02f
+    val linePaint = Paint().apply {
+        color = Color.argb((alpha * 0.8f).toInt(), 30, 30, 30)
+        strokeWidth = lineWidth
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+    }
+
+    for (i in 0 until 20) {
+        val angle = random.nextFloat() * 180f
+        val startX = random.nextInt(width).toFloat()
+        val startY = random.nextInt(height).toFloat()
+        val length = 20f + random.nextFloat() * 40f
+        val endX = startX + length * cos(Math.toRadians(angle.toDouble())).toFloat()
+        val endY = startY + length * sin(Math.toRadians(angle.toDouble())).toFloat()
+        canvas.drawLine(startX, startY, endX, endY, linePaint)
+    }
+
+    val crosshatchPaint = Paint().apply {
+        color = Color.argb((alpha * 0.6f).toInt(), 35, 35, 35)
+        strokeWidth = 0.5f
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+    }
+
+    for (i in 0 until width step 15) {
+        canvas.drawLine(i.toFloat(), 0f, (i + height).toFloat(), height.toFloat(), crosshatchPaint)
+    }
+    for (i in 0 until width step 15) {
+        canvas.drawLine(i.toFloat(), 0f, (i - height).toFloat(), height.toFloat(), crosshatchPaint)
+    }
+}
+
+private fun detectEdges(bitmap: Bitmap, threshold: Int): BooleanArray {
+    val width = bitmap.width
+    val height = bitmap.height
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    val edges = BooleanArray(width * height)
+
+    for (y in 1 until height - 1) {
+        for (x in 1 until width - 1) {
+            val idx = y * width + x
+
+            val gx = -Color.red(pixels[(y - 1) * width + (x - 1)]) +
+                    Color.red(pixels[(y - 1) * width + (x + 1)]) +
+                    -2 * Color.red(pixels[y * width + (x - 1)]) +
+                    2 * Color.red(pixels[y * width + (x + 1)]) +
+                    -Color.red(pixels[(y + 1) * width + (x - 1)]) +
+                    Color.red(pixels[(y + 1) * width + (x + 1)])
+
+            val gy = -Color.red(pixels[(y - 1) * width + (x - 1)]) +
+                    -2 * Color.red(pixels[(y - 1) * width + x]) +
+                    -Color.red(pixels[(y - 1) * width + (x + 1)]) +
+                    Color.red(pixels[(y + 1) * width + (x - 1)]) +
+                    2 * Color.red(pixels[(y + 1) * width + x]) +
+                    Color.red(pixels[(y + 1) * width + (x + 1)])
+
+            val magnitude = kotlin.math.sqrt((gx * gx + gy * gy).toDouble()).toInt()
+            edges[idx] = magnitude > threshold
+        }
+    }
+
+    return edges
+}
+
+private fun applyGaussianBlur(
+    bitmap: Bitmap,
+    startX: Int,
+    startY: Int,
+    radius: Float,
+    regionSize: Int
+) {
+    val width = bitmap.width
+    val height = bitmap.height
+    val endX = min(startX + regionSize, width)
+    val endY = min(startY + regionSize, height)
+
+    val kernelSize = (2 * (3 * radius).toInt() + 1).coerceAtLeast(3)
+    val kernel = FloatArray(kernelSize)
+    val sigma = radius / 3f
+    var sum = 0f
+
+    for (i in 0 until kernelSize) {
+        val x = i - kernelSize / 2
+        kernel[i] = kotlin.math.exp(-(x * x) / (2 * sigma * sigma).toDouble()).toFloat()
+        sum += kernel[i]
+    }
+
+    for (i in 0 until kernelSize) {
+        kernel[i] /= sum
+    }
+
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    val temp = pixels.clone()
+
+    for (y in startY until endY) {
+        for (x in startX until endX) {
+            var r = 0f
+            var g = 0f
+            var b = 0f
+            var a = 0f
+
+            for (k in 0 until kernelSize) {
+                val px = (x + k - kernelSize / 2).coerceIn(0, width - 1)
+                val pixel = pixels[y * width + px]
+                val weight = kernel[k]
+                r += Color.red(pixel) * weight
+                g += Color.green(pixel) * weight
+                b += Color.blue(pixel) * weight
+                a += Color.alpha(pixel) * weight
+            }
+
+            temp[y * width + x] = Color.argb(a.toInt(), r.toInt(), g.toInt(), b.toInt())
+        }
+    }
+
+    for (y in startY until endY) {
+        for (x in startX until endX) {
+            var r = 0f
+            var g = 0f
+            var b = 0f
+            var a = 0f
+
+            for (k in 0 until kernelSize) {
+                val py = (y + k - kernelSize / 2).coerceIn(0, height - 1)
+                val pixel = temp[py * width + x]
+                val weight = kernel[k]
+                r += Color.red(pixel) * weight
+                g += Color.green(pixel) * weight
+                b += Color.blue(pixel) * weight
+                a += Color.alpha(pixel) * weight
+            }
+
+            pixels[y * width + x] = Color.argb(a.toInt(), r.toInt(), g.toInt(), b.toInt())
+        }
+    }
+
+    bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+}
+
+private fun applySharpen(
+    bitmap: Bitmap,
+    startX: Int,
+    startY: Int,
+    regionSize: Int
+) {
+    val width = bitmap.width
+    val height = bitmap.height
+    val endX = min(startX + regionSize, width)
+    val endY = min(startY + regionSize, height)
+
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    val newPixels = pixels.clone()
+
+    val kernel = arrayOf(
+        intArrayOf(0, -1, 0),
+        intArrayOf(-1, 5, -1),
+        intArrayOf(0, -1, 0)
+    )
+
+    for (y in startY + 1 until endY - 1) {
+        for (x in startX + 1 until endX - 1) {
+            var r = 0
+            var g = 0
+            var b = 0
+
+            for (ky in -1..1) {
+                for (kx in -1..1) {
+                    val pixel = pixels[(y + ky) * width + (x + kx)]
+                    val weight = kernel[ky + 1][kx + 1]
+                    r += Color.red(pixel) * weight
+                    g += Color.green(pixel) * weight
+                    b += Color.blue(pixel) * weight
+                }
+            }
+
+            val a = Color.alpha(pixels[y * width + x])
+            newPixels[y * width + x] = Color.argb(
+                a,
+                r.coerceIn(0, 255),
+                g.coerceIn(0, 255),
+                b.coerceIn(0, 255)
+            )
+        }
+    }
+
+    bitmap.setPixels(newPixels, 0, width, 0, 0, width, height)
+}
+
+private fun perlinNoise(x: Float, y: Float, frequency: Float, seed: Long): Float {
+    val random = Random(seed)
+    val xi = (x * frequency).toInt()
+    val yi = (y * frequency).toInt()
+    val xf = x * frequency - xi
+    val yf = y * frequency - yi
+
+    val n00 = dotGridGradient(xi, yi, x * frequency, y * frequency, random)
+    val n10 = dotGridGradient(xi + 1, yi, x * frequency, y * frequency, random)
+    val n01 = dotGridGradient(xi, yi + 1, x * frequency, y * frequency, random)
+    val n11 = dotGridGradient(xi + 1, yi + 1, x * frequency, y * frequency, random)
+
+    val sx = fade(xf)
+    val sy = fade(yf)
+
+    val nx0 = lerp(n00, n10, sx)
+    val nx1 = lerp(n01, n11, sx)
+
+    return lerp(nx0, nx1, sy)
+}
+
+private fun dotGridGradient(ix: Int, iy: Int, x: Float, y: Float, random: Random): Float {
+    val randomSeed = (ix * 374761393L + iy * 668265263L + random.nextLong()) and 0xFFFFFFFFL
+    val angle = (randomSeed % 360) * Math.PI / 180.0
+    val gradX = cos(angle).toFloat()
+    val gradY = sin(angle).toFloat()
+
+    val dx = x - ix
+    val dy = y - iy
+
+    return dx * gradX + dy * gradY
+}
+
+private fun fade(t: Float): Float {
+    return t * t * t * (t * (t * 6 - 15) + 10)
+}
+
+private fun lerp(a: Float, b: Float, t: Float): Float {
+    return a + t * (b - a)
 }

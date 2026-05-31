@@ -11,6 +11,9 @@
     <string name="strength_light">轻度</string>
     <string name="strength_medium">中度</string>
     <string name="strength_strong">强力</string>
+    <string name="label_anti_recognition">高级防识别增强</string>
+    <string name="description_anti_recognition">添加对抗性噪声、纹理叠加等技术，进一步提升防识别效果</string>
+    <string name="label_advanced_strength">高级防识别强度</string>
     <string name="generated_image_content_description">生成的图片</string>
     <string name="save_success">图片已保存到Pictures目录</string>
     <string name="save_failed">保存失败，请检查权限</string>
